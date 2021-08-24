@@ -1,18 +1,18 @@
 close all; clear
 
 data_path = '../deidentified_data_tables/';
-addpath('../utils')
+addpath(genpath('../utils'));
+fprintf('load count table of 16S... \n')
 tblcounts = readtable(strcat(data_path, 'counts/tblcounts_asv_melt.csv'));
+fprintf('unstacking ... \n');
 tblcounts = unstack(tblcounts, 'Count', 'ASV');
-
+fprintf('done. \n\n');
 cardT = readtable('../metagenome_data/cardTbl.csv');
 cardT = cardT(:, {'resistGene' ,'RelavantPercentInCARD', 'SampleID'});
 cardT.Properties.VariableNames = {'resistGene', 'RelavantPercentage', 'SampleID'};
 vanApcr = readtable(strcat(data_path,'/meta_data/tblVanA.csv'));
-% X = outerjoin(vanA, cardT, 'Type','left','MergeKeys',true);
-%% plot vanA PCR in tSNE
+
 %% plot samples with vanA PCR
-% shotGun = readtable('../deidentified_data_tables/samples/tblASVsamples.csv');
 shotGun = readtable(strcat(data_path, 'samples/tblASVsamples.csv'), ...
                         'Format', '%s%s%d%s%s%s%d%s');
 shotGunSample = shotGun.SampleID(cellfun(@(X) ~isempty(X), shotGun.AccessionShotgun));
@@ -34,7 +34,8 @@ vanAcolor = [.95 .1 .7];
 notOverlap = [.8 .8 .8];
 dotsize = 100;
 
-figure(100)
+fprintf('plotting vanA PCR checked samples in tSNE ... \n');
+figure
 scatter(scoreLin(inotchecked, 1), scoreLin(inotchecked, 2), dotsize, notOverlap, 'filled', 'MarkerEdgeColor', notOverlap*0.9, 'LineWidth', 1);
 hold on
 scatter(scoreLin(ivanA_neg, 1), scoreLin(ivanA_neg, 2), dotsize, noVanAcolor, 'filled', 'MarkerEdgeColor', noVanAcolor*0.4, 'LineWidth', 1);
@@ -56,7 +57,7 @@ axis([xtick_lb,xtick_ub,ytick_lb,ytick_ub]);
 set(gca,'XTick',xtick_lb:10:xtick_ub);
 set(gca,'YTick',ytick_lb:10:ytick_ub);
 title('Samples with vanA PCR and shotgun sequencing', 'FontSize', 20)
-
+fprintf('finished plotting. \n\n')
 %% compare vanA and vanB
 vanAcomp = cardT(strcmp(cardT.resistGene, 'vanA'), :);
 vanBcomp = cardT(strcmp(cardT.resistGene, 'vanB'), :);
@@ -67,8 +68,7 @@ vanAB.SampleID(cellfun(@(X) isempty(X), vanAB.SampleID)) = vanAB.s(cellfun(@(X) 
 vanAB.s =[];
 vanAB.vanA(isnan(vanAB.vanA))=0;
 vanAB.vanB(isnan(vanAB.vanB))=0;
-[R, p] = corrcoef(vanAB.vanA, vanAB.vanB);
-corr(vanAB.vanA, vanAB.vanB, 'Type','Spearman')
+[rho, pval]= corr(vanAB.vanA, vanAB.vanB, 'Type','Pearson');
 
 %%
 g = zeros(height(vanAB),1);
@@ -85,6 +85,7 @@ hold off
 xlabel('vanA abundance (%)', 'fontsize', 14)
 ylabel('vanB abundance (%)', 'fontsize', 14)
 legend({'only vanA or vanB detected' 'both vanA and vanB detected'}, 'fontsize', 12)
+title('correlation between vanA and vanB', 'fontsize', 16)
 %%
 vanAcompCARD=grpstats(vanAcomp, 'SampleID', 'sum', 'DataVar', 'RelavantPercentage');
 vanAcompCARD.GroupCount=[];
@@ -102,7 +103,6 @@ X2.sum_RelavantPercentage = X2.sum_RelavantPercentage*100;
 [p,h,stats] = ranksum(X2.sum_RelavantPercentage(X2.VanA==0), ...
                          X2.sum_RelavantPercentage(X2.VanA==1))
 
-
 %% beeswarm plot
 
 figure
@@ -117,3 +117,4 @@ set(gca, 'ylim', [-1 11], 'ytick', 0:2:10, ...
 ylabel('relative abundance of vanA in CARD', 'fontsize', 14) 
 text(-0.1, 10.5, sprintf('n=%i', n0),'fontsize', 14)
 text(0.9, 10.5, sprintf('n=%i', n1),'fontsize', 14)
+title('vanA abundance in CARD', 'fontsize', 16)

@@ -1,5 +1,7 @@
 close all; clear
 
+%% path of functions
+addpath(genpath('../utils'));
 %% path to data
 data_path = '../deidentified_data_tables/';
 shotGun = readtable(strcat(data_path, '../deidentified_data_tables/samples/tblASVsamples.csv'), ...
@@ -8,29 +10,31 @@ shotGunSample = shotGun(cellfun(@(X) ~isempty(X), shotGun.AccessionShotgun), :);
 samplesWithCard = shotGunSample.SampleID;
 readcountTbl = readtable('../metagenome_data/tblShotgunReadcounts.csv','Format', '%s%f');
 shotGunSample=join(shotGunSample, readcountTbl, 'Keys', 'SampleID');
-
+clear shotGun
 calculateTSNE = 0; % if calculateTSNE==1, redo calculation of t-SNE. This will take >30 min
-%% path of tsne
-addpath('../utils');
+
 
 %% load and unstack the counts table
+fprintf('reading count table of 16S...\n');
 tblcounts = readtable(strcat(data_path, 'counts/tblcounts_asv_melt.csv'));
+fprintf('unstacking ... \n');
 tblcounts = unstack(tblcounts, 'Count', 'ASV');
-
+fprintf('done. \n\n');
 %% normalize ASV counts to relative abundance
+fprintf('normalizing counts ... \n')
 matcounts = tblcounts{:, 2:end}; % the first column is 'SampleID'
 matcounts(isnan(matcounts)) = 0; % replace missing taxa count with 0
 matcounts = matcounts ./ sum(matcounts, 2); % convert to relative abundance
 tblcounts{:, 2:end} = matcounts;
-
+clear matcounts
+fprintf('done. \n\n');
 %% load the taxonomy table
+fprintf('reading silva table;...\n');
 tbltaxonomy = readtable(strcat(data_path, 'taxonomy/tblASVtaxonomy_silva132_v4v5_filter.csv'));
+fprintf('reading silva table finished. \n');
+%% join tables together
 
-%%
-% [~,ia,ib]=intersect(shotGunSample.SampleID, tblcounts.SampleID);
-T = tblcounts;
-% ln=length(ib);
-newT = outerjoin(T, shotGunSample, 'Type', 'left','mergeKeys', true);
+newT = outerjoin(tblcounts, shotGunSample, 'Type', 'left','mergeKeys', true);
 idx = max(find(contains(newT.Properties.VariableNames, 'ASV')));
 TM = newT{:, contains(newT.Properties.VariableNames, 'ASV')};
 TM(isnan(TM))=0;
@@ -39,11 +43,7 @@ clear TM T
 
 Tasv = newT(:, 1:idx);
 Tsample = newT(:, [1, (idx+1):end]);
-
-
-
-% Sum = sum(Tcard{:, 2:end}, 2);
-
+clear newT
 %% tSNE using functions downloaded from https://lvdmaaten.github.io/tsne/code/bh_tsne.tar.gz
 % IMPORTANT! Run tSNE on the entire dataset takes ~ 30 minutes on my PC (MacBook Pro, 2018, 6 cpu parallelization)
 % note: tSNE coefficients vary from run to run
@@ -62,10 +62,13 @@ if calculateTSNE==1
     cd(original_dir);
     fprintf('tSNE done.\n');
 else
+    fprintf('load tSNE.mat ... \n');
     X= load('../savedMat/tSNE.mat');
+    fprintf('tSNE.mat \n');
     scoreLinT=X.scoreLinT;
     clear X
     scoreLin = scoreLinT{:, {'scoreLin1','scoreLin2'}};
+    
 end
 %% get the dominant taxa of each sample and its rgb color
 % each sample in the tSNE plot will be colored by its dominant taxa
@@ -76,7 +79,6 @@ ASV_color = hex2rgb(tbltaxonomy(dominant_ASV_idx, :).HexColor);
 bgColor = [220,220,220]/255;
 figure();
 hold on;
-% shotgunIdx = find(cellfun(@(X) ~isempty(X), shotGun.AccessionShotgun));
 scatter(scoreLin(:, 1), scoreLin(:, 2), 100, ASV_color, 'filled', 'MarkerEdgeColor', 'k', 'LineWidth', 1);
 axis square;
 box on;
@@ -97,8 +99,6 @@ title('Compositional map of 16S sequencing', 'fontsize', 20)
 %% plot samples with shotgun sequencing
 % 
 colorPlot = repmat([.9 0 0], height(Tsample), 1);
-% shotGun = readtable('../metagenome_data/tblASVsamplesUpdatedWithShotgunWithReadcounts_final.xlsx');
-% shotGunSample = shotGun.SampleID(cellfun(@(X) ~isempty(X), shotGun.AccessionShotgun));
 [~, ~, isg]=intersect(shotGunSample.SampleID, Tsample.SampleID);
 G=zeros(height(Tsample),1);
 G(isg)=1;
@@ -108,9 +108,8 @@ mycolor = [noshotgunColor; wshotgunColor];
 figure()
 uG=unique(G, 'stable');
 for i=1:length(uG)
-scatter(scoreLin(G==uG(i), 1), scoreLin(G==uG(i), 2), 100, mycolor(i,:), 'filled', 'MarkerEdgeColor', 'k', 'LineWidth', 1);
-hold on
-% scatter(scoreLin(G==uG(, 1), scoreLin(isg, 2), 100, wshotgunColor, 'filled', 'MarkerEdgeColor', 'k', 'LineWidth', 1);
+    scatter(scoreLin(G==uG(i), 1), scoreLin(G==uG(i), 2), 100, mycolor(i,:), 'filled', 'MarkerEdgeColor', 'k', 'LineWidth', 1);
+    hold on
 end
 axis square;
 box on;
@@ -136,7 +135,7 @@ end
 
 %% stool consistency vs log read counts
 grouporder = {'formed', 'semi-formed', 'liquid'};
-T1 = shotGunSample(:, {'Consistency' 'readcount'})
+T1 = shotGunSample(:, {'Consistency' 'readcount'});
 stoolC=cellstr(shotGunSample.Consistency);
 figure
 vs = violinplot(log10(T1.readcount), stoolC, ...
@@ -151,8 +150,6 @@ vs(3).MedianPlot.MarkerFaceColor = [0 0 0];
 vs(1).MeanPlot.LineWidth=3;
 vs(2).MeanPlot.LineWidth=3;
 vs(3).MeanPlot.LineWidth=3;
-% vs(1).WhiskerPlot.MarkerFaceColor = [ 0 0 0];
-% vs(1).WhiskerPlot.MarkerFaceColor = [ 0 0 0];
 vs(1).ViolinColor = [.2 0.8 .3];
 vs(2).ViolinColor = [.5 0.5 1];
 vs(3).ViolinColor = [.8 0.3 0.2];

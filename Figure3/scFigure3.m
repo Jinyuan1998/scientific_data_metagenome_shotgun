@@ -1,6 +1,6 @@
 %% 
 close all; clear;
-addpath('../utils');
+addpath(genpath('../utils'));
 X=load('../savedMat/Tcorr_shannon');
 Tcorr_shannon = X.Tcorr_shannon;
 

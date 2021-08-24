@@ -1,26 +1,29 @@
 %% 
 close all; 
 clear;
+
+addpath(genpath('../utils'));
+data_path = '../deidentified_data_tables/'; % path to data
 % read the sample table
-tblASVsamples = readtable('../deidentified_data_tables/samples/tblASVsamples.csv', ...
+tblASVsamples = readtable(strcat(data_path, 'samples/tblASVsamples.csv'), ...
                         'Format', '%s%s%d%s%s%s%d%s');
 % pick the patient with most shotgun sequenced samples
 idxHasShotun = cellfun(@(x) ~isempty(x), tblASVsamples.AccessionShotgun);
 tblASVsamples = tblASVsamples(idxHasShotun, :);
+
+fprintf('loading readcounts from shotgun...\n')
 readcountTbl = readtable('../metagenome_data/tblShotgunReadcounts.csv','Format', '%s%f');
+fprintf('loading finished...\n\n')
 tblASVsamples=join(tblASVsamples, readcountTbl, 'Keys', 'SampleID');
 rewriteShotgunAbundances = 0; % will rewrite everything if set to 1
 
-%% plot the timeline for this patient
-addpath('../utils');
-data_path = '../deidentified_data_tables/'; % path to data
+%% Get the colors ready for compositional plot
 % get the 16S sample data
 opts = detectImportOptions(strcat(data_path, 'samples/tblASVsamples.csv'));
 opts = setvartype(opts,{'PatientID'},'categorical');
 tblsamples = readtable(strcat(data_path, 'samples/tblASVsamples.csv'),opts);
 
 tblsamples = tblsamples(ismember(tblsamples.SampleID, tblASVsamples.SampleID), :);
-%tblsamples = tblsamples((tblsamples.PatientID==PatientID2Plot & ismember(tblsamples.SampleID, tblASVsamples.SampleID(idxHasShotun))), :);
 tblsamples = sortrows(tblsamples, 'Timepoint'); % sort rows by time point of samples
 
 % load counts table of 16S sequencing
@@ -28,7 +31,9 @@ tblcounts_16S = readtable(strcat(data_path, 'counts/tblcounts_asv_melt.csv'));
 tblcounts_16S = tblcounts_16S(contains(tblcounts_16S.SampleID, tblsamples.SampleID), :);
 
 % unstack counts table and normalize ASV counts to relative abundance
+fprintf('unstacking count table ... \n');
 tblcounts_16S = unstack(tblcounts_16S, 'Count', 'ASV');
+fprintf('done.\n\n')
 counts_matrix_16S = tblcounts_16S{:, 2:end}; % the first column is "SampleID"
 counts_matrix_16S(isnan(counts_matrix_16S)) = 0; % missing count value is filled with 0
 counts_matrix_16S = counts_matrix_16S ./ sum(counts_matrix_16S, 2); % convert to relative abundance
@@ -40,11 +45,7 @@ tblcounts_16S = sortrows(tblcounts_16S, 'Timepoint'); % sort rows by time point 
 tbltaxonomy = readtable(strcat(data_path,'taxonomy/tblASVtaxonomy_silva132_v4v5_filter.csv'));
 tbltaxonomy = tbltaxonomy(ismember(tbltaxonomy.ASV,tblcounts_16S.Properties.VariableNames(4:end)), :);
 
-
 % %#########################################################################
- 
-% plot samples
-
 % the first 3 columns of tblcounts are SampleID, Timepoint and DayRelativeToNearestHCT
 abundance_matrix_16S = tblcounts_16S{:, 4:end};
 
@@ -61,19 +62,17 @@ end
 
 ASV_cmap_16S = hex2rgb(uni_color_hex_16S);
 
-recordkraken2file = 'samplesWithoutKraken2.txt';
-if isfile(recordkraken2file)
-    delete(recordkraken2file)
-end
-
-%% make the sample plot to shotgun
+%% process shotgun data from kraken 2
 addpath('../');
 if rewriteShotgunAbundances ==1
+    recordkraken2file = 'samplesWithoutKraken2.txt';
+    if isfile(recordkraken2file)
+        delete(recordkraken2file)
+    end
     tblShotgunAbundances = [];
     S=zeros(height(tblsamples),1);
     S2=zeros(height(tblsamples),1);
     for i = 1:height(tblsamples)
-    % for i=1:5
         s = tblsamples.SampleID{i};
         fn  = sprintf('../PATRIC_output/kraken2/.%s_kraken2/report.txt', s);
         srr = tblASVsamples.AccessionShotgun{strcmp(tblASVsamples.SampleID, s)};
@@ -89,13 +88,12 @@ if rewriteShotgunAbundances ==1
                 load(sprintf('../PATRIC_output/kraken2/.%s_kraken2/tblKraken2.mat', s));
             else
                 fprintf('Sample %s has not been processed by matlab yet.\n', s)
-    %             fprintf('Doing it now...\n')
+                fprintf('Doing it now...\n')
                 srr = tblASVsamples.AccessionShotgun{strcmp(tblASVsamples.SampleID, s)};
                 log = sprintf('../PATRIC_output/kraken2/%s_kraken2', s);
                 %%%% check if the srr number can be found in the html file
                 [status,result] = system(['cat ' log ' | grep ' srr]);
                 if status == 1 || isempty(result)
-    %                 error('Sample %s not confirmed by %s', s, log)
                     fprintf('Sample %s not confirmed by %s', s, log)
                     fileID = fopen(recordkraken2file,'a');
                     fprintf(fileID,'Sample %s not confirmed by %s, double check SRR number\n', s, log);
@@ -125,7 +123,6 @@ if rewriteShotgunAbundances ==1
                 idx = loc>0;
                 sumG.ColorOrder(idx) = tbltaxonomy.ColorOrder(loc(idx));
                 sumG.HexColor(idx) = tbltaxonomy.HexColor(loc(idx));
-%                 sumG.hit16S(idx) = tbltaxonomy{loc(idx), taxaFull{j}};
             end
             % if there's no match
             sumG.HexColor(sumG.ColorOrder == 0) = {'#000000'};
@@ -169,8 +166,6 @@ else
 end
 
 %%
-% figure(1)
-% subplot(2, 1, 2)
 % % calculate the cumulative sum of taxa with same color_order
 % % unique_color_order should be automatically sorted
 [unique_color_order_shotgun,ia,ic] = unique(tblShotgunAbundances.ColorOrder);
@@ -182,9 +177,9 @@ for k = 1:length(unique_color_order_shotgun)
     color_grouped_abundance_shotgun(:,k) = currsum;
 end
 
-%% plot stacked bar of a given patient
+%% chose a patient to do stacked bar plot
 sampleTblwShotgun = tblASVsamples(cellfun(@(X) ~isempty(X), tblASVsamples.AccessionShotgun),:);
-sampleTblwShotgunCounts = groupcounts(sampleTblwShotgun, 'PatientID')
+sampleTblwShotgunCounts = groupcounts(sampleTblwShotgun, 'PatientID');
 %%%%%% choose the patient with the most samples
 patientID = sampleTblwShotgunCounts.PatientID( ...
                 sampleTblwShotgunCounts.GroupCount==max(sampleTblwShotgunCounts.GroupCount) ...
@@ -195,10 +190,11 @@ patientTbl = sortrows(patientTbl, 'DayRelativeToNearestHCT');
 patientSamples = patientTbl.SampleID;            
 %
 [~, sampleIdx, ~] = intersect(tblcounts_16S.SampleID, patientSamples, 'stable');
-% patient_tblcounts = tblcounts(sampleIdx, :);
+
 patient_color_grouped_abundance_16S = color_grouped_abundance_16S(sampleIdx,:);
 
-%%% plot the taxonomic composition of a chosen patient
+%% plot the taxonomic composition of a chosen patient
+fprintf('plotting compositional data ... \n')
 figure()
 subplot(2,1,1)
 h=bar(patient_color_grouped_abundance_16S, 'stacked',  'BarWidth', height(tblcounts_16S)/(height(tblcounts_16S)+9));
@@ -212,13 +208,12 @@ colormap(gca, ASV_cmap_16S);
 ylim([0 1]);
 h = gca;
 h.XTick = 1:size(patient_color_grouped_abundance_16S, 1);
-% h.XTickLabel = tblcounts_16S.SampleID(sampleIdx);
+
 L = cellstr(num2str(patientTbl.DayRelativeToNearestHCT));
 L = cellfun(@(X) strrep(X, ' ', ''), L, 'UniformOutput', false);
 h.XTickLabel = L;
 h.XTickLabelRotation = 90;
 ylabel('relative abundance' )
-% title(sprintf('PatientID=%s', patientID{:}), 'fontSize', 14)
 title('16S rRNA gene sequencing', 'fontsize', 14)
 subplot(2,1,2)
 
@@ -245,7 +240,7 @@ h.XTickLabel = L;
 h.XTickLabelRotation = 90;
 ylabel('relative abundance')
 title('Shotgun metagenomic sequencing', 'fontsize', 14)
-
+fprintf('finished plotting \n \n')
 %% correlation analysis to compare taxanomic composition
 %%%%% 1. correlation forr each sample
 tblcountsM=tblcounts_16S{:, 4:end};
@@ -256,6 +251,7 @@ tblcounts2_16s.ASV=tblcounts_16S.Properties.VariableNames(4:end)';
 Tbl_16S = join(tblcounts2_16s, tbltaxonomy(:, [1, 3:8]), 'Keys', 'ASV');
 clear a
 %%
+fprintf('calculating correlations and shannon index ...\n')
 sSamples = tblShotgunAbundances.Properties.VariableNames(9:end);
 Taxa = {'Phylum' 'Class' 'Order' 'Family' 'Genus'};
 c = {'Cor', 'Rsq', 'Pvalue'};
@@ -273,7 +269,6 @@ shannon_Index_shotgun = zeros(size(abundance_matrix_shotgun,1), length(Taxa));
 shannon_Index_16S = zeros(size(abundance_matrix_shotgun,1), length(Taxa));
 for j=1:length(Taxa)
     corrS(j).name = Taxa(j);
-%     X = [];
     T_compare =[];
 for i=1:length(sSamples)
     s1 = sSamples{i};
@@ -316,15 +311,10 @@ for i=1:length(sSamples)
         [R, p] = corrcoef( T{:,3},T{:,2});
         corrT{i, [Taxa{j} '_Pvalue']} = p(1,2);
         corrT{i, [Taxa{j} '_Rsq']} = R(1,2)^2;
-%         x = [ones(length(T{:,'shotgun'}),1) T{:,'shotgun'}];
-%         b = x\T{:,'16S'};
-%         corrT{i, [Taxa{j} '_Cor']} = b(2);
         corrT{i, [Taxa{j} '_Cor']}=corr( T{:,3},T{:,2}, 'Type','Pearson');
-
     else
         sampleWithSingleDominace{end+1} = [s2 ' ' Taxa{j}];    
     end
-%     X =[X; T];
     clear T
 end
 corrS(j).TaxaCompare = T_compare;
@@ -336,8 +326,9 @@ shannon_Index_16S = array2table(shannon_Index_16S, 'VariableNames', Taxa, 'RowNa
 shannon_Index_shotgun.SampleID = rownames';
 shannon_Index_16S.SampleID = rownames';
 corrT.SampleID = rownames';
-
+fprintf('calculating finished. \n\n')
 %% get taxas that are always missing in shotgun or 16S
+fprintf('Identify missing taxa ...\n')
 TaxaNotIn16S =[];
 TaxaNotInShotgun =[];
 
@@ -377,8 +368,9 @@ TaxaNotInShotgun(ismember(TaxaNotInShotgun.TaxaName, '<not present>'), :) = [];
 TaxaNotIn16S(ismember(TaxaNotIn16S.TaxaName, '<not present>'), :) = [];
 TaxaNotInShotgun = sortrows(TaxaNotInShotgun, 'median', 'descend');
 TaxaNotIn16S = sortrows(TaxaNotIn16S, 'frequency', 'descend');
-writetable(TaxaNotInShotgun, 'TaxaNotInShotgun.csv');
-writetable(TaxaNotIn16S, 'TaxaNotIn16S.csv');
+writetable(TaxaNotInShotgun, '../metagenome_data/TaxaNotInShotgun.csv');
+writetable(TaxaNotIn16S, '../metagenome_data/TaxaNotIn16S.csv');
+fprintf('Finished \n\n')
 %%
 
 sID = corrT.SampleID;
@@ -402,11 +394,6 @@ Xcat = T1_corr.Consistency;
                         X(ismember(Xcat, {'liquid'})))
 [p23,h23,stats23] = ranksum(X(ismember(Xcat, {'semi-formed'})), ...
                         X(ismember(Xcat, {'liquid'})))
-%% anova
-[p,tbl,stats] = anova1(X, Xcat)
-[c,~,~,gnames] = multcompare(stats)
-% the 6th column of c is the pvalue
-[gnames(c(:,1)), gnames(c(:,2)), num2cell(c(:,3:6))]
 
 %% show diversity among stool consistency
 T1 = tblASVsamples(:, {'SampleID', 'Consistency'});
@@ -438,14 +425,13 @@ end
 Tcorr_shannon = outerjoin(T1_corr, shannon_Index_shotgun, 'Keys', 'SampleID', 'mergeKeys', true);
 save('../savedMat/Tcorr_shannon','Tcorr_shannon');
 
-
-
 %% find genera that are the most different between 16S and shotgun
 
 P=[];
 Ranksum=[];
 DiffGenera = {};
 %%
+fprintf('compare relative abundance of taxa and plot ... \n')
 grporder = {'shotgun', '16S'};
 dotsz = 40;
 abundance_cutoff = 0.1;
@@ -461,7 +447,6 @@ for k=1:length(Taxa)
     gT{:, 2:end}=gT_m;
     taxaUnit = unique(gT.(Taxa{k}));
     for i=1:length(taxaUnit)
-    % for i=503
         idx = ismember(gT.(Taxa{k}), taxaUnit{i});
         gT_taxa = gT(idx, :);
         a1 = gT_taxa{:, contains(gT.Properties.VariableNames, 'shotgun-')};
@@ -472,12 +457,12 @@ for k=1:length(Taxa)
             Ranksum(end+1)=stats.ranksum;
             DiffGenera{end+1} =  taxaUnit{i};
             if median(a1)>=abundance_cutoff & median(a2)>=abundance_cutoff
-                subplot(4,4,n)
+                subplot(3,3,n)
                 n=n+1;
                 vs = violinplot([a1; a2], ...
                     [repmat({'shotgun'}, length(a1),1); repmat({'16S'}, length(a2),1)], ...
                     'Bandwidth', 0.15, ...
-                    'ViolinAlpha', 1, ...
+                    'ViolinAlpha', .3, ...
                     'ShowNotches', false, ...
                     'ShowMean', false, ...
                     'GroupOrder', grporder, ...
@@ -504,3 +489,4 @@ for k=1:length(Taxa)
 
     end
 end
+fprintf('finished \n')
