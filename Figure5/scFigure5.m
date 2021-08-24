@@ -7,15 +7,13 @@ plot(vre_tr)
 %%%% reroot using the Enterococcus faecalis 62 genome
 ind = getbyname(vre_tr,'936153.3'); 
 [sel,sel_leaves, sel_branches] = select(vre_tr,'criteria','distance',...
-                          'threshold',0.00001,'reference',ind);
-                                           
+                          'threshold',0.00001,'reference',ind);                                           
 vre_tr2 = reroot(vre_tr, sel);
 plot(vre_tr2)
 
 %%
 %%%% remove Enterococcus faecalis 62 because it compresses the other
 %%%% isolates too much for clear visulization
-
 ind = getbyname(vre_tr2,'936153.3');
 vre_tr3 = prune(vre_tr2,ind);
 view(vre_tr3)
@@ -34,7 +32,6 @@ end
 %%
 tree_gNames=cellfun(@(X) strrep(X, 'Enterococcus faecium ', ''), tree_gNames, 'UniformOutput', false);
 ind = find(~contains(tree_gNames, 'VRE'));
-% tree_gNames(ind) = strcat('MAG_', tree_gNames(ind));
 %%
 fill_cmap = [ 255     153    255  
     178    102    255 
